@@ -1,10 +1,13 @@
+declare alu32 {
+	output	out<32>;
+}
+
+
 module donguri {
 	input	cpu_en;
 	input	cpu_restart;
-	input	fiq;
-	input	irq;
 	input	ram_abort;
-	input	ram_rdata<32>;
+	input	ram_rdata<26>;
 	input	rom_abort;
 	input	rom_data<32>;
 
@@ -13,14 +16,46 @@ module donguri {
 	output	ram_flag<4>;
 	output	ram_wdata<32>;
 	output	ram_wen;
-	output	rom_addr<32>;
+	output	rom_addr<26>;
 	output	rom_en;
 
-	reg_wr	r0<32>,r1<32>,r2<32>,r3<32>,r4<32>,r5<32>,r6<32>,r7<32>,r8<32>,r9<32>,r10<32>,r11<32>,r12<32>,r13<32>,r14<32>,r15<32>;
-	
-	reg	opc<32>;
+	instrin	fiq, irq;
+	instrout rd;
 
-	sel	Rn<32>, Rd<32>;
+	instrself s1;
+	instrself read;
+
+	sel dbi<32>;			/* instruction bus */
+	sel ABin<26>;			/* Addrss Bus */
+	sel	Rn<32>, Rd<32>;		/* output of Register bank */
+
+	reg_wr	r0<32>,r1<32>,r2<32>,r3<32>,r4<32>,r5<32>,r6<32>,r7<32>,r8<32>,r9<32>,r10<32>,r11<32>,r12<32>,r13<32>,r14<32>,r15<32>;
+	reg		pc<26>;
+	reg		rAB<26>;
+	reg		OP<32>;			/* Next Instrunction */
+	reg		opc<32>;
+
+	alu32	alu;
+
+	stage_name ift{		/* instruction fetch */
+		task run();
+		task do_fiq();
+		task do_irq();
+		task res();
+	}
+
+	stage_name idc{		/* instruction decode */
+	}
+
+	stage_name ex{		/* execute */
+		task S1();
+	}
+
+/* Common operatins for every stages */
+
+	instruct read par { dbi = rom_data; rd();}
+	instruct fiq  generate ift.do_fiq();
+	instruct irq  generate ift.do_irq();
 
 	any {
 		opc<15:12>==0x0: Rd = r0;
@@ -38,7 +73,7 @@ module donguri {
 		opc<15:12>==0xc: Rd = r12;
 		opc<15:12>==0xd: Rd = r13;
 		opc<15:12>==0xe: Rd = r14;
-		opc<15:12>==0xf: Rd = r15;
+		opc<15:12>==0xf: Rd = r15+0x00000004;
 	}
 
 	any {
@@ -57,9 +92,65 @@ module donguri {
 		opc<19:16>==0xc: Rn = r12;
 		opc<19:16>==0xd: Rn = r13;
 		opc<19:16>==0xe: Rn = r14;
-		opc<19:16>==0xf: Rn = r15;
+		opc<19:16>==0xf: Rn = r15+0x00000004;
 	}
 
+/* Fetch Stage */
+	stage ift {
+		state_name st0, st1, st2, st3, st4, st5, st6;
+		first_state st0;
+		
+		/* fetch instruction ->OP */
+		any {
+			ift.run & ^ift.do_fiq & ^ift.do_irq & ^ift.res : par {
+				read();
+				OP := dbi;
+			}
+		}
+
+		/* set next instruction address -> rAB */
+		state st0 any {
+			ift.res: goto st4;
+			ift.run: par {
+				rAB := alu.out<25:0>;
+				goto st1;
+			}
+		}
+		state st1 par {
+			goto st2;
+		}
+		state st2 par {
+			goto st3;
+		}
+		state st3 par {
+			goto st4;
+		}
+		state st4 par {								/* set exeption vector */
+			alt {
+				ift.res: 		ABin =	0b00 || 0x000000;
+				ift.do_fiq: 	ABin =	0b00 || 0x00001c;
+				ift.do_irq: 	ABin =	0b00 || 0x000018;
+			}
+			rAB := ABin;
+			goto st5;
+		}
+		state st5 par {
+			read();
+			goto st6;
+		}
+		state st6 par {
+			goto st0; relay ift.run();
+		}
+	}
+
+/* Decode Stage */
+
+/* Execute Stage */
+	stage ex {
+		any {
+			s1: relay ex.S1();
+		}
+	}
 
 
 	
