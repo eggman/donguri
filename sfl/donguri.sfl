@@ -1,7 +1,38 @@
-declare alu32 {
-	output	out<32>;
+declare shift32 {
+	input		in<32>;
+	input		shift;
+	output		out<32>;
+
+	instrin		lsl, lsr, asr, por, prx;
 }
 
+declare alu32 {
+	input		cond<4>;
+	input		in1<32>;
+	input		in2<32>;
+	input		ci;
+	output		out<32>;
+
+	instrout	s, v, z, c;
+	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
+
+	instr_arg   do_and(cond, in1, in2);
+	instr_arg	eor(cond, in1, in2);
+	instr_arg	sub(cond, in1, in2);
+	instr_arg	rsb(cond, in1, in2);
+	instr_arg	add(cond, in1, in2);
+	instr_arg	adc(cond, in1, in2, ci);
+	instr_arg	sbc(cond, in1, in2, ci);
+	instr_arg	rsc(cond, in1, in2, ci);
+	instr_arg	tst(cond, in1, in2);
+	instr_arg	teq(cond, in1, in2);
+	instr_arg	cmp(cond, in1, in2);
+	instr_arg	cmn(cond, in1, in2);
+	instr_arg	orr(cond, in1, in2);
+	instr_arg	mov(cond, in2);
+	instr_arg	bic(cond, in1, in2);
+	instr_arg	mvn(cond, in1, in2);
+}
 
 module donguri {
 	input	cpu_en;
@@ -22,8 +53,16 @@ module donguri {
 	instrin	fiq, irq;
 	instrout rd;
 
-	instrself s1;
 	instrself read;
+
+	/* for dedode */
+	instrself decode_d;
+	instrself cEQ, cNE, cCS, cCC, cMI, cPL, cVS, cVC, cHI, cLS, cGE, cLT, cGT, cLE, cAL, cNV;
+	instrself oDP0, oDP1, oDP2, oMUL, oLDR0, oLDR1, oLDRH0, oLDRH1, oLDRSB0, oLDRSB1, oLDRSH0, oLDRSH1, oLDM, oB, oSWI;
+	instrself opAND, opEOR, opSUB, opRSB, opADD, opADC, opSBC, opRSC, opTST, opTEQ, opCMP, opCMN, opORR, opMOV, opBIC, opMVN;
+
+	/* for execute */
+	instrself decode_e;
 
 	sel dbi<32>;			/* instruction bus */
 	sel ABin<26>;			/* Addrss Bus */
@@ -32,123 +71,142 @@ module donguri {
 	reg_wr	r0<32>,r1<32>,r2<32>,r3<32>,r4<32>,r5<32>,r6<32>,r7<32>,r8<32>,r9<32>,r10<32>,r11<32>,r12<32>,r13<32>,r14<32>,r15<32>;
 	reg		pc<26>;
 	reg		rAB<26>;
-	reg		OP<32>;			/* Next Instrunction */
-	reg		opc<32>;
+	reg		opd<32>;			/* instrunction at decode stage*/
+	reg		ope<32>;			/* instrunction at execute stage*/
 
 	alu32	alu;
 
 	stage_name ift{		/* instruction fetch */
-		task run();
 		task do_fiq();
 		task do_irq();
 		task res();
 	}
 
-	stage_name idc{		/* instruction decode */
+	stage_name decode{		/* instruction decode */
+		task dec();
 	}
 
-	stage_name ex{		/* execute */
-		task S1();
+	stage_name exec{		/* execute */
+		task exe();
 	}
-
-/* Common operatins for every stages */
 
 	instruct read par { dbi = rom_data; rd();}
 	instruct fiq  generate ift.do_fiq();
 	instruct irq  generate ift.do_irq();
 
+	instruct decode_d par {
+		any {
+			opd<27:25>==0b000 & ( opd<24:23>!=0b10 | opd<20>) & ^opd<4>:   				oDP0(); 
+			opd<27:25>==0b000 & ( opd<24:23>!=0b10 | opd<20>) &  opd<4> & ^opd<7>:		oDP1(); 
+			opd<27:25>==0b001 & ( opd<24:23>!=0b10 | opd<20>): 							oDP2(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1011 & ^opd<22>:  	oLDRH0(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1011 &  opd<22>:  	oLDRH1(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1101 & ^opd<22>:  	oLDRSB0(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1101 &  opd<22>:  	oLDRSB1(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1111 & ^opd<22>:  	oLDRSH0(); 
+			opd<27:25>==0b000 & opd<7:4>==0b1111 &  opd<22>:  	oLDRSH1(); 
+			opd<27:22>==0b000000:	oMUL(); 
+			opd<27:25>==0b010:  	oLDR0(); 
+			opd<27:25>==0b011:  	oLDR1(); 
+			opd<27:25>==0b100:  	oLDM(); 
+			opd<27:25>==0b101:  	oB(); 
+			opd<27:24>==0b1111:  	oSWI(); 
+		}
+
+		any {
+			oMUL | oB:				opADD();
+			(oDP0 | oDP1 | oDP2)&((opd<24:21>==0b0010)|(opd<24:21>==0b0101)|(opd<24:21>==0b1011)): 	opADD();
+			else: if(opd<23>)		opADD();
+		}
+	}
+
+	instruct decode_e par {
+		any {
+			opd<31:28>==0x0:  cEQ();
+			opd<31:28>==0x1:  cNE();
+			opd<31:28>==0x2:  cCS();
+			opd<31:28>==0x3:  cCC(); 
+			opd<31:28>==0x4:  cMI();
+			opd<31:28>==0x5:  cPL();
+			opd<31:28>==0x6:  cVS();
+			opd<31:28>==0x7:  cVC(); 
+			opd<31:28>==0x8:  cHI();
+			opd<31:28>==0x9:  cLS();
+			opd<31:28>==0xa:  cGE();
+			opd<31:28>==0xb:  cLT(); 
+			opd<31:28>==0xc:  cGT();
+			opd<31:28>==0xd:  cLE();
+			opd<31:28>==0xe:  cAL();
+			opd<31:28>==0xf:  cNV(); 
+		}
+	}
+
+/* Common operatins for every stages */
+
 	any {
-		opc<15:12>==0x0: Rd = r0;
-		opc<15:12>==0x1: Rd = r1;
-		opc<15:12>==0x2: Rd = r2;
-		opc<15:12>==0x3: Rd = r3;
-		opc<15:12>==0x4: Rd = r4;
-		opc<15:12>==0x5: Rd = r5;
-		opc<15:12>==0x6: Rd = r6;
-		opc<15:12>==0x7: Rd = r7;
-		opc<15:12>==0x8: Rd = r8;
-		opc<15:12>==0x9: Rd = r9;
-		opc<15:12>==0xa: Rd = r10;
-		opc<15:12>==0xb: Rd = r11;
-		opc<15:12>==0xc: Rd = r12;
-		opc<15:12>==0xd: Rd = r13;
-		opc<15:12>==0xe: Rd = r14;
-		opc<15:12>==0xf: Rd = r15+0x00000004;
+		opd<15:12>==0x0: Rd = r0;
+		opd<15:12>==0x1: Rd = r1;
+		opd<15:12>==0x2: Rd = r2;
+		opd<15:12>==0x3: Rd = r3;
+		opd<15:12>==0x4: Rd = r4;
+		opd<15:12>==0x5: Rd = r5;
+		opd<15:12>==0x6: Rd = r6;
+		opd<15:12>==0x7: Rd = r7;
+		opd<15:12>==0x8: Rd = r8;
+		opd<15:12>==0x9: Rd = r9;
+		opd<15:12>==0xa: Rd = r10;
+		opd<15:12>==0xb: Rd = r11;
+		opd<15:12>==0xc: Rd = r12;
+		opd<15:12>==0xd: Rd = r13;
+		opd<15:12>==0xe: Rd = r14;
+		opd<15:12>==0xf: Rd = r15+0x00000004;
 	}
 
 	any {
-		opc<19:16>==0x0: Rn = r0;
-		opc<19:16>==0x1: Rn = r1;
-		opc<19:16>==0x2: Rn = r2;
-		opc<19:16>==0x3: Rn = r3;
-		opc<19:16>==0x4: Rn = r4;
-		opc<19:16>==0x5: Rn = r5;
-		opc<19:16>==0x6: Rn = r6;
-		opc<19:16>==0x7: Rn = r7;
-		opc<19:16>==0x8: Rn = r8;
-		opc<19:16>==0x9: Rn = r9;
-		opc<19:16>==0xa: Rn = r10;
-		opc<19:16>==0xb: Rn = r11;
-		opc<19:16>==0xc: Rn = r12;
-		opc<19:16>==0xd: Rn = r13;
-		opc<19:16>==0xe: Rn = r14;
-		opc<19:16>==0xf: Rn = r15+0x00000004;
+		opd<19:16>==0x0: Rn = r0;
+		opd<19:16>==0x1: Rn = r1;
+		opd<19:16>==0x2: Rn = r2;
+		opd<19:16>==0x3: Rn = r3;
+		opd<19:16>==0x4: Rn = r4;
+		opd<19:16>==0x5: Rn = r5;
+		opd<19:16>==0x6: Rn = r6;
+		opd<19:16>==0x7: Rn = r7;
+		opd<19:16>==0x8: Rn = r8;
+		opd<19:16>==0x9: Rn = r9;
+		opd<19:16>==0xa: Rn = r10;
+		opd<19:16>==0xb: Rn = r11;
+		opd<19:16>==0xc: Rn = r12;
+		opd<19:16>==0xd: Rn = r13;
+		opd<19:16>==0xe: Rn = r14;
+		opd<19:16>==0xf: Rn = r15+0x00000004;
 	}
 
 /* Fetch Stage */
 	stage ift {
-		state_name st0, st1, st2, st3, st4, st5, st6;
-		first_state st0;
-		
 		/* fetch instruction ->OP */
 		any {
-			ift.run & ^ift.do_fiq & ^ift.do_irq & ^ift.res : par {
+			 ^ift.do_fiq & ^ift.do_irq & ^ift.res : par {
 				read();
-				OP := dbi;
+				opd := dbi;
+				relay decode.dec();
 			}
 		}
 
-		/* set next instruction address -> rAB */
-		state st0 any {
-			ift.res: goto st4;
-			ift.run: par {
-				rAB := alu.out<25:0>;
-				goto st1;
-			}
-		}
-		state st1 par {
-			goto st2;
-		}
-		state st2 par {
-			goto st3;
-		}
-		state st3 par {
-			goto st4;
-		}
-		state st4 par {								/* set exeption vector */
-			alt {
-				ift.res: 		ABin =	0b00 || 0x000000;
-				ift.do_fiq: 	ABin =	0b00 || 0x00001c;
-				ift.do_irq: 	ABin =	0b00 || 0x000018;
-			}
-			rAB := ABin;
-			goto st5;
-		}
-		state st5 par {
-			read();
-			goto st6;
-		}
-		state st6 par {
-			goto st0; relay ift.run();
-		}
 	}
 
 /* Decode Stage */
+	stage decode {
+		par {
+			decode_d();
+			ope := opd;
+			relay exec.exe();
+		}
+	}
 
 /* Execute Stage */
-	stage ex {
-		any {
-			s1: relay ex.S1();
+	stage exec {
+		par {
+			decode_d();
 		}
 	}
 
