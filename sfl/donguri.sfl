@@ -1,13 +1,18 @@
 declare shift32 {
 	input		in<32>;
-	input		shift;
+	input		count<5>;
 	output		out<32>;
+	output		co;
 
 	instrin		lsl, lsr, asr, por, prx;
+
+	instr_arg	lsl(in, count);
+	instr_arg	lsr(in, count);
+	instr_arg	asr(in, count);
+	instr_arg	por(in, count);
 }
 
 declare alu32 {
-	input		cond<4>;
 	input		in1<32>;
 	input		in2<32>;
 	input		ci;
@@ -16,67 +21,82 @@ declare alu32 {
 	instrout	s, v, z, c;
 	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
 
-	instr_arg   do_and(cond, in1, in2);
-	instr_arg	eor(cond, in1, in2);
-	instr_arg	sub(cond, in1, in2);
-	instr_arg	rsb(cond, in1, in2);
-	instr_arg	add(cond, in1, in2);
-	instr_arg	adc(cond, in1, in2, ci);
-	instr_arg	sbc(cond, in1, in2, ci);
-	instr_arg	rsc(cond, in1, in2, ci);
-	instr_arg	tst(cond, in1, in2);
-	instr_arg	teq(cond, in1, in2);
-	instr_arg	cmp(cond, in1, in2);
-	instr_arg	cmn(cond, in1, in2);
-	instr_arg	orr(cond, in1, in2);
-	instr_arg	mov(cond, in2);
-	instr_arg	bic(cond, in1, in2);
-	instr_arg	mvn(cond, in1, in2);
+	instr_arg   do_and(in1, in2);
+	instr_arg	eor(in1, in2);
+	instr_arg	sub(in1, in2);
+	instr_arg	rsb(in1, in2);
+	instr_arg	add(in1, in2);
+	instr_arg	adc(in1, in2, ci);
+	instr_arg	sbc(in1, in2, ci);
+	instr_arg	rsc(in1, in2, ci);
+	instr_arg	tst(in1, in2);
+	instr_arg	teq(in1, in2);
+	instr_arg	cmp(in1, in2);
+	instr_arg	cmn(in1, in2);
+	instr_arg	orr(in1, in2);
+	instr_arg	mov(in2);
+	instr_arg	bic(in1, in2);
+	instr_arg	mvn(in1, in2);
+}
+
+module alu32 {
+	input		in1<32>;
+	input		in2<32>;
+	input		ci;
+	output		out<32>;
+
+	instrout	s, v, z, c;
+	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
 }
 
 module donguri {
 	input	cpu_en;
 	input	cpu_restart;
-	input	ram_abort;
-	input	ram_rdata<26>;
+//	input	ram_abort;
+//	input	ram_rdata<26>;
 	input	rom_abort;
 	input	rom_data<32>;
 
-	output	ram_addr<26>;
-	output	ram_cen;
-	output	ram_flag<4>;
-	output	ram_wdata<32>;
-	output	ram_wen;
+//	output	ram_addr<26>;
+//	output	ram_cen;
+//	output	ram_flag<4>;
+//	output	ram_wdata<32>;
+//	output	ram_wen;
 	output	rom_addr<26>;
-	output	rom_en;
+//	output	rom_en;
 
 	instrin	fiq, irq;
+	instrin start;
 	instrout rd;
 
 	instrself read;
 
 	/* for dedode */
-	instrself decode_d;
 	instrself cEQ, cNE, cCS, cCC, cMI, cPL, cVS, cVC, cHI, cLS, cGE, cLT, cGT, cLE, cAL, cNV;
-	instrself oDP0, oDP1, oDP2, oMUL, oLDR0, oLDR1, oLDRH0, oLDRH1, oLDRSB0, oLDRSB1, oLDRSH0, oLDRSH1, oLDM, oB, oSWI;
+	instrself oDP0, oDP1, oDP2, oMUL, oLDR0, oLDR1, oLDM, oB, oSWI, oUND;
 	instrself opAND, opEOR, opSUB, opRSB, opADD, opADC, opSBC, opRSC, opTST, opTEQ, opCMP, opCMN, opORR, opMOV, opBIC, opMVN;
 
 	/* for execute */
-	instrself decode_e;
+	instrself decop;
 
 	sel dbi<32>;			/* instruction bus */
 	sel ABin<26>;			/* Addrss Bus */
 	sel	Rn<32>, Rd<32>;		/* output of Register bank */
+	sel Abus<32>;
+	sel Bbus<32>;
+	sel ALUbus<32>;
 
-	reg_wr	r0<32>,r1<32>,r2<32>,r3<32>,r4<32>,r5<32>,r6<32>,r7<32>,r8<32>,r9<32>,r10<32>,r11<32>,r12<32>,r13<32>,r14<32>,r15<32>;
-	reg		pc<26>;
-	reg		rAB<26>;
-	reg		opd<32>;			/* instrunction at decode stage*/
-	reg		ope<32>;			/* instrunction at execute stage*/
+	sel psr_mode<2>;
+
+	reg_wr	r0<32>,r1<32>,r2<32>,r3<32>,r4<32>,r5<32>,r6<32>,r7<32>,r8<32>,r9<32>,r10<32>,r11<32>,r12<32>,r13<32>,r14<32>;
+	reg_wr	psr_n, psr_z, psr_c, psr_v, psr_i, psr_f;
+	reg_wr	pc<26>;
+	reg		opc<32>;			/* instrunction at exec stage*/
 
 	alu32	alu;
 
 	stage_name ift{		/* instruction fetch */
+		task run();
 		task do_fiq();
 		task do_irq();
 		task res();
@@ -90,104 +110,211 @@ module donguri {
 		task exe();
 	}
 
+/* Common operatins for every stages */
+	par {
+		any {
+			opc<15:12>==0x0: Rd = r0;
+			opc<15:12>==0x1: Rd = r1;
+			opc<15:12>==0x2: Rd = r2;
+			opc<15:12>==0x3: Rd = r3;
+			opc<15:12>==0x4: Rd = r4;
+			opc<15:12>==0x5: Rd = r5;
+			opc<15:12>==0x6: Rd = r6;
+			opc<15:12>==0x7: Rd = r7;
+			opc<15:12>==0x8: Rd = r8;
+			opc<15:12>==0x9: Rd = r9;
+			opc<15:12>==0xa: Rd = r10;
+			opc<15:12>==0xb: Rd = r11;
+			opc<15:12>==0xc: Rd = r12;
+			opc<15:12>==0xd: Rd = r13;
+			opc<15:12>==0xe: Rd = r14;
+//			opc<15:12>==0xf: Rd = r15+0x00000004;
+		}
+
+		any {
+			opc<19:16>==0x0: Rn = r0;
+			opc<19:16>==0x1: Rn = r1;
+			opc<19:16>==0x2: Rn = r2;
+			opc<19:16>==0x3: Rn = r3;
+			opc<19:16>==0x4: Rn = r4;
+			opc<19:16>==0x5: Rn = r5;
+			opc<19:16>==0x6: Rn = r6;
+			opc<19:16>==0x7: Rn = r7;
+			opc<19:16>==0x8: Rn = r8;
+			opc<19:16>==0x9: Rn = r9;
+			opc<19:16>==0xa: Rn = r10;
+			opc<19:16>==0xb: Rn = r11;
+			opc<19:16>==0xc: Rn = r12;
+			opc<19:16>==0xd: Rn = r13;
+			opc<19:16>==0xe: Rn = r14;
+//			opc<19:16>==0xf: Rn = r15+0x00000004;
+		}
+	}
+
 	instruct read par { dbi = rom_data; rd();}
 	instruct fiq  generate ift.do_fiq();
 	instruct irq  generate ift.do_irq();
 
-	instruct decode_d par {
+//	instruct decode_d par {
+//		any {
+//			oMUL | oB:				opADD();
+//			(oDP0 | oDP1 | oDP2)&((opc<24:21>==0b0010)|(opc<24:21>==0b0101)|(opc<24:21>==0b1011)): 	opADD();
+//			else: if(opc<23>)		opADD();
+//		}
+//	}
+
+	instruct start generate ift.run();
+
+	instruct decop par {
 		any {
-			opd<27:25>==0b000 & ( opd<24:23>!=0b10 | opd<20>) & ^opd<4>:   				oDP0(); 
-			opd<27:25>==0b000 & ( opd<24:23>!=0b10 | opd<20>) &  opd<4> & ^opd<7>:		oDP1(); 
-			opd<27:25>==0b001 & ( opd<24:23>!=0b10 | opd<20>): 							oDP2(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1011 & ^opd<22>:  	oLDRH0(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1011 &  opd<22>:  	oLDRH1(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1101 & ^opd<22>:  	oLDRSB0(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1101 &  opd<22>:  	oLDRSB1(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1111 & ^opd<22>:  	oLDRSH0(); 
-			opd<27:25>==0b000 & opd<7:4>==0b1111 &  opd<22>:  	oLDRSH1(); 
-			opd<27:22>==0b000000:	oMUL(); 
-			opd<27:25>==0b010:  	oLDR0(); 
-			opd<27:25>==0b011:  	oLDR1(); 
-			opd<27:25>==0b100:  	oLDM(); 
-			opd<27:25>==0b101:  	oB(); 
-			opd<27:24>==0b1111:  	oSWI(); 
+			opc<27:25>==0b000 & ( opc<24:23>!=0b10 | opc<20> ) & ^opc<4>:   		oDP0(); 	// Data Proccessing shift Im
+			opc<27:25>==0b000 & ( opc<24:23>!=0b10 | opc<20> ) &  opc<4> & ^opc<7>:	oDP1();		// Data Proccessing shift Rs
+			opc<27:25>==0b001 & ( opc<24:23>!=0b10 | opc<20> ): 					oDP2();		// Data Proccessing Im
+			opc<27:22>==0b000000:	oMUL();						// Muliply
+			opc<27:25>==0b010:  	oLDR0();					// Single data transfer
+			opc<27:25>==0b011:  	oLDR1();					// Single data transfer Im
+			opc<27:25>==0b100:  	oLDM();						// Block data ransfer
+			opc<27:25>==0b101:  	oB();						// Branch and branch wih link
+			opc<27:24>==0b1111:  	oSWI();						// Sofwave ineterrupt
+			(opc<27:24>==0b0001 & opc<7>==0b1 & opc<4>==0b1 ) |
+			(opc<27:25>==0b011	& opc<4>==0b1 )	:  	oUND();		// Undefined instructions
 		}
 
 		any {
-			oMUL | oB:				opADD();
-			(oDP0 | oDP1 | oDP2)&((opd<24:21>==0b0010)|(opd<24:21>==0b0101)|(opd<24:21>==0b1011)): 	opADD();
-			else: if(opd<23>)		opADD();
+			opc<27:26>==0b00: any {
+				opc<24:21>==0x0: opAND();
+				opc<24:21>==0x1: opEOR();
+				opc<24:21>==0x2: opSUB();
+				opc<24:21>==0x3: opRSB();
+				opc<24:21>==0x4: opADD();
+				opc<24:21>==0x5: opADC();
+				opc<24:21>==0x6: opSBC();
+				opc<24:21>==0x7: opRSC();
+				opc<24:21>==0x8: opTST();
+				opc<24:21>==0x9: opTEQ();
+				opc<24:21>==0xa: opCMP();
+				opc<24:21>==0xb: opCMN();
+				opc<24:21>==0xc: opORR();
+				opc<24:21>==0xd: opMOV();
+				opc<24:21>==0xe: opBIC();
+				opc<24:21>==0xf: opMVN();
+			}
 		}
-	}
 
-	instruct decode_e par {
 		any {
-			opd<31:28>==0x0:  cEQ();
-			opd<31:28>==0x1:  cNE();
-			opd<31:28>==0x2:  cCS();
-			opd<31:28>==0x3:  cCC(); 
-			opd<31:28>==0x4:  cMI();
-			opd<31:28>==0x5:  cPL();
-			opd<31:28>==0x6:  cVS();
-			opd<31:28>==0x7:  cVC(); 
-			opd<31:28>==0x8:  cHI();
-			opd<31:28>==0x9:  cLS();
-			opd<31:28>==0xa:  cGE();
-			opd<31:28>==0xb:  cLT(); 
-			opd<31:28>==0xc:  cGT();
-			opd<31:28>==0xd:  cLE();
-			opd<31:28>==0xe:  cAL();
-			opd<31:28>==0xf:  cNV(); 
+			opc<31:28>==0x0:  cEQ();
+			opc<31:28>==0x1:  cNE();
+			opc<31:28>==0x2:  cCS();
+			opc<31:28>==0x3:  cCC();
+			opc<31:28>==0x4:  cMI();
+			opc<31:28>==0x5:  cPL();
+			opc<31:28>==0x6:  cVS();
+			opc<31:28>==0x7:  cVC();
+			opc<31:28>==0x8:  cHI();
+			opc<31:28>==0x9:  cLS();
+			opc<31:28>==0xa:  cGE();
+			opc<31:28>==0xb:  cLT();
+			opc<31:28>==0xc:  cGT();
+			opc<31:28>==0xd:  cLE();
+			opc<31:28>==0xe:  cAL();
+			opc<31:28>==0xf:  cNV();
 		}
 	}
 
-/* Common operatins for every stages */
-
-	any {
-		opd<15:12>==0x0: Rd = r0;
-		opd<15:12>==0x1: Rd = r1;
-		opd<15:12>==0x2: Rd = r2;
-		opd<15:12>==0x3: Rd = r3;
-		opd<15:12>==0x4: Rd = r4;
-		opd<15:12>==0x5: Rd = r5;
-		opd<15:12>==0x6: Rd = r6;
-		opd<15:12>==0x7: Rd = r7;
-		opd<15:12>==0x8: Rd = r8;
-		opd<15:12>==0x9: Rd = r9;
-		opd<15:12>==0xa: Rd = r10;
-		opd<15:12>==0xb: Rd = r11;
-		opd<15:12>==0xc: Rd = r12;
-		opd<15:12>==0xd: Rd = r13;
-		opd<15:12>==0xe: Rd = r14;
-		opd<15:12>==0xf: Rd = r15+0x00000004;
+	instruct opAND par {
+		alu.do_and(Abus, Bbus);
+		ALUbus = alu.out;
+//		if(opc<20>==1) psr_z := alu.z;
+	}
+	instruct opEOR par {
+		alu.eor(Abus, Bbus);
+		ALUbus = alu.out;
+		psr_z := alu.z;
+	}
+	instruct opSUB par {
+		alu.sub(Abus, Bbus);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opRSB par {
+		alu.rsb(Abus, Bbus);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opADD par {
+		alu.add(Abus, Bbus);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opADC par {
+		alu.adc(Abus, Bbus, psr_c);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opSBC par {
+		alu.sbc(Abus, Bbus, psr_c);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opRSC par {
+		alu.rsc(Abus, Bbus, psr_c);
+		ALUbus = alu.out;
+		psr_z := alu.z; psr_c := alu.c; psr_v := alu.v;
+	}
+	instruct opTST par {
+		alu.tst(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opTEQ par {
+		alu.teq(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opCMP par {
+		alu.cmp(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opCMN par {
+		alu.cmn(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opORR par {
+		alu.orr(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opMOV par {
+		alu.mov(Bbus);
+		psr_z := alu.z;
+	}
+	instruct opBIC par {
+		alu.bic(Abus, Bbus);
+		psr_z := alu.z;
+	}
+	instruct opMVN par {
+		alu.mvn(Abus, Bbus);
+		psr_z := alu.z;
 	}
 
-	any {
-		opd<19:16>==0x0: Rn = r0;
-		opd<19:16>==0x1: Rn = r1;
-		opd<19:16>==0x2: Rn = r2;
-		opd<19:16>==0x3: Rn = r3;
-		opd<19:16>==0x4: Rn = r4;
-		opd<19:16>==0x5: Rn = r5;
-		opd<19:16>==0x6: Rn = r6;
-		opd<19:16>==0x7: Rn = r7;
-		opd<19:16>==0x8: Rn = r8;
-		opd<19:16>==0x9: Rn = r9;
-		opd<19:16>==0xa: Rn = r10;
-		opd<19:16>==0xb: Rn = r11;
-		opd<19:16>==0xc: Rn = r12;
-		opd<19:16>==0xd: Rn = r13;
-		opd<19:16>==0xe: Rn = r14;
-		opd<19:16>==0xf: Rn = r15+0x00000004;
-	}
 
 /* Fetch Stage */
+/*  - set address of instruction */
 	stage ift {
 		/* fetch instruction ->OP */
 		any {
-			 ^ift.do_fiq & ^ift.do_irq & ^ift.res : par {
-				read();
-				opd := dbi;
+			 ^ift.do_fiq & ^ift.do_irq  : par {
+				rom_addr = pc;
+				pc := pc + 0b00||0x000004;
+				relay decode.dec();
+			}
+			ift.res: par {
+				rom_addr = 0b00||0x000000;
+				relay decode.dec();
+			}
+			ift.do_fiq: par {
+				rom_addr = 0b00||0x00001c;
+				relay decode.dec();
+			}
+			ift.do_irq: par {
+				rom_addr = 0b00||0x000018;
 				relay decode.dec();
 			}
 		}
@@ -197,8 +324,8 @@ module donguri {
 /* Decode Stage */
 	stage decode {
 		par {
-			decode_d();
-			ope := opd;
+			read();
+			opc := dbi;
 			relay exec.exe();
 		}
 	}
@@ -206,10 +333,8 @@ module donguri {
 /* Execute Stage */
 	stage exec {
 		par {
-			decode_d();
+			decop();
 		}
+		relay ift.run();
 	}
-
-
-	
 }
