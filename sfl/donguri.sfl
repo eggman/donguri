@@ -1,7 +1,9 @@
+%i "alu32.sfl"
+
 declare shift32 {
 	input		in<32>;
 	input		count<5>;
-//	input		ci;
+	input		ci;
 	input		dir<2>;		//lsl, lsr, asr, por, prx;
 	output		out<32>;
 
@@ -12,33 +14,6 @@ declare shift32 {
 	instr_arg	sreg(in, count, dir);
 }
 
-declare alu32 {
-	input		in1<32>;
-	input		in2<32>;
-	input		ci;
-	output		out<32>;
-
-	instrout	n, z, c, v;
-	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
-
-	instr_arg	do_and(in1, in2);
-	instr_arg	eor(in1, in2);
-	instr_arg	sub(in1, in2);
-	instr_arg	rsb(in1, in2);
-	instr_arg	add(in1, in2);
-	instr_arg	adc(in1, in2, ci);
-	instr_arg	sbc(in1, in2, ci);
-	instr_arg	rsc(in1, in2, ci);
-	instr_arg	tst(in1, in2);
-	instr_arg	teq(in1, in2);
-	instr_arg	cmp(in1, in2);
-	instr_arg	cmn(in1, in2);
-	instr_arg	orr(in1, in2);
-	instr_arg	mov(in2);
-	instr_arg	bic(in1, in2);
-	instr_arg	mvn(in1, in2);
-}
-
 declare inc26 {
 	input       in<26>;
 	output      out<24>;
@@ -46,6 +21,7 @@ declare inc26 {
 	instr_arg	do(in);
 }
 
+/* 32bit shifter */
 module shift32 {
 	input		in<32>;
 	input		count<5>;
@@ -66,38 +42,7 @@ module shift32 {
 	}
 }
 
-module alu32 {
-	input		in1<32>;
-	input		in2<32>;
-	input		ci;
-	output		out<32>;
-
-	instrout	n, z, c, v;
-	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
-
-	instruct	do_and par{
-		out = in1 & in2;
-//		if(out<31>) n(); if( ^/| out ) z();
-	}
-	instruct	eor par{
-		out = in1 @ in2;
-//		if(out<31>) n(); if( ^/| out ) z();
-	}
-	instruct	orr par{
-		out = in1 | in2;
-//		if(out<31>) n(); if( ^/| out ) z();
-	}
-	instruct	mov par{
-		out = in2;
-		if(in2<31>) n(); if( ^/| in2 ) z();
-	}
-	instruct	bic par{
-		out = in1 & ^in2;
-//		if(out<31>) n(); if( ^/| out ) z();
-	}
-}
-
-
+/* 26-bit incrementer */
 circuit inc26 {
 	input       in<26> ;
 	output      out<24> ;
@@ -123,20 +68,15 @@ module donguri {
 
 	instrself read;
 
-	/* for dedode */
+	/* for dedode and execute */
 	instrself	oDP0, oDP1, oDP2, oB;
 	instrself	opAND, opEOR, opSUB, opRSB, opADD, opADC, opSBC, opRSC, opTST, opTEQ, opCMP, opCMN, opORR, opMOV, opBIC, opMVN;
-
-	/* for execute */
 	instrself decop;
 
 	sel dbi<32>;			/* Data Input bus */
-	sel Rd<32>;				/* destination of Register bank */
 	sel Rn<32>, Rm<32>;		/* output of Register bank */
-	sel Rs<32>;				/* output of Register bank */
 	sel Abus<32>;
 	sel Bbus<32>;
-	sel OP1bus<32>;
 	sel OP2bus<32>;
 	sel ALUbus<32>;
 	sel PCbus<26>;
@@ -167,6 +107,8 @@ module donguri {
 /* Common operatins for every stages */
 	par {
 		par {
+
+			if (oDP0 | oDP1 | oDP2)
 			any {
 				opc<15:12>==0x0: r0  := ALUbus;
 				opc<15:12>==0x1: r1  := ALUbus;
@@ -184,6 +126,7 @@ module donguri {
 				opc<15:12>==0xd: r13 := ALUbus;
 				opc<15:12>==0xe: r14 := ALUbus;
 			}
+			if (oDP0 | oDP1 | oDP2)
 			any {
 				opc<15:12>==0xf: par {
 										psr_n := ALUbus<31>;
@@ -198,6 +141,7 @@ module donguri {
 			}
 		}
 
+		if (oDP0 | oDP1 | oDP2)
 		any {
 			opc<19:16>==0x0: Rn = r0;
 			opc<19:16>==0x1: Rn = r1;
@@ -217,6 +161,7 @@ module donguri {
 			opc<19:16>==0xf: Rn = 0b000000||pc||0b00;
 		}
 
+		if (oDP0 | oDP1)
 		any {
 			opc<3:0>==0x0: Rm = r0;
 			opc<3:0>==0x1: Rm = r1;
@@ -252,43 +197,47 @@ module donguri {
 		}
 
 		// for ALU
+		if (oDP0 | oDP1 | oDP2)
 		any {
-			opc<27:26>==0b00: any {
-				opc<24:21>==0x0: opAND();
-				opc<24:21>==0x1: opEOR();
-				opc<24:21>==0x2: opSUB();
-				opc<24:21>==0x3: opRSB();
-				opc<24:21>==0x4: opADD();
-				opc<24:21>==0x5: opADC();
-				opc<24:21>==0x6: opSBC();
-				opc<24:21>==0x7: opRSC();
-				opc<24:21>==0x8: opTST();
-				opc<24:21>==0x9: opTEQ();
-				opc<24:21>==0xa: opCMP();
-				opc<24:21>==0xb: opCMN();
-				opc<24:21>==0xc: opORR();
-				opc<24:21>==0xd: opMOV();
-				opc<24:21>==0xe: opBIC();
-				opc<24:21>==0xf: opMVN();
-			}
+			opc<24:21>==0x0: opAND();
+			opc<24:21>==0x1: opEOR();
+			opc<24:21>==0x2: opSUB();
+			opc<24:21>==0x3: opRSB();
+			opc<24:21>==0x4: opADD();
+			opc<24:21>==0x5: opADC();
+			opc<24:21>==0x6: opSBC();
+			opc<24:21>==0x7: opRSC();
+			opc<24:21>==0x8: opTST();
+			opc<24:21>==0x9: opTEQ();
+			opc<24:21>==0xa: opCMP();
+			opc<24:21>==0xb: opCMN();
+			opc<24:21>==0xc: opORR();
+			opc<24:21>==0xd: opMOV();
+			opc<24:21>==0xe: opBIC();
+			opc<24:21>==0xf: opMVN();
 		}
 	}
 
 	instruct oDP0 par {
 		Bbus = Rm;
 		OP2bus = shift.simm(Bbus, opc<11:7>, opc<6:5>).out;
+		ADRbus = INCbus||0b00;
 	}
 
 	instruct oDP2 par {
 		Bbus = 0x000000||opc<7:0>;
 		OP2bus = shift.immrot(Bbus, 0b0||opc<11:8>).out;
+		ADRbus = INCbus||0b00;
 	}
 
 	instruct oB par {
+		Abus = 0b000000||pc||0b00;
 		Bbus = 0x00||opc<23:0>;
 		OP2bus = shift.simm(Bbus, 0b0||0x2, 0b11).out;
+		alu.add(Abus, OP2bus);
+		ALUbus = alu.out;
+		ADRbus = ALUbus<25:0>;
 	}
-
 
 	instruct opAND par {
 		alu.do_and(Abus, OP2bus);
@@ -370,7 +319,6 @@ module donguri {
 	stage ifetch {
 		par {
 			INCbus = inc.do(ADRbus).out ;		//Increment
-			ADRbus = INCbus||0b00;
 			adr := ADRbus;
 			relay decode.dec();
 		}

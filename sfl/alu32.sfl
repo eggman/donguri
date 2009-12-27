@@ -1,0 +1,126 @@
+declare alu32 {
+	input		in1<32>;				/* Op1 */
+	input		in2<32>;				/* Op2 */
+	input		ci;						/* carry */
+	output		out<32>;
+
+	instrout	n, z, c, v;
+	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
+	instrin		df;
+
+	instr_arg	do_and(in1, in2);		/* Op1 AND Op2 */
+	instr_arg	eor(in1, in2);			/* Op1 EOR Op2 */
+	instr_arg	sub(in1, in2);			/* Op1 - Op2 */
+	instr_arg	rsb(in1, in2);			/* Op2 - Op1 */
+	instr_arg	add(in1, in2);			/* Op1 + Op2 */
+	instr_arg	adc(in1, in2, ci);		/* Op1 + Op2 + caary */
+	instr_arg	sbc(in1, in2, ci);		/* Op1 - Op2 + carry */
+	instr_arg	rsc(in1, in2, ci);		/* Op2 - Op1 + carry */
+	instr_arg	tst(in1, in2);
+	instr_arg	teq(in1, in2);
+	instr_arg	cmp(in1, in2);
+	instr_arg	cmn(in1, in2);
+	instr_arg	orr(in1, in2);			/* Op1 OR Op2 */
+	instr_arg	mov(in2);				/* Op2 */
+	instr_arg	bic(in1, in2);			/* Op1 and (NOT Op2) */
+	instr_arg	mvn(in1, in2);			/* NOT Op2 */
+}
+
+
+declare csa32 {
+	input in1<32>, in2<32>, ci, df;
+	output out<32>, co;
+	instrin add,sub;
+	instr_arg add(in1,in2,ci,df);
+	instr_arg sub(in1,in2,ci,df);
+}
+
+/* 32-bit add / sub with carry */
+module csa32 {
+	input in1<32>, in2<32>, ci, df;
+ 	output out<32>, co;
+	instrin add,sub;
+
+	sel	result<33>;
+
+	instruct add par {
+		result  = (0b0||in1) + (0b0||in2) + (0x00000000||ci);
+		out = result<31:0>;
+		co  = result<32>;
+	}
+	instruct sub par {
+		result  = (0b0||in1) - (0b0||in2) + (0x00000000||ci);
+		out = result<31:0>;
+		co  = result<32>;
+	}
+}
+
+/* 32-bit ALU */
+module alu32 {
+	input		in1<32>;
+	input		in2<32>;
+	input		ci;
+	output		out<32>;
+
+	instrout	n, z, c, v;
+	instrin		do_and, eor, sub, rsb, add, adc, sbc, rsc, tst, teq, cmp, cmn, orr, mov, bic, mvn;
+	instrin		df;
+
+	csa32	adder;
+
+	instruct	do_and par{
+		out = in1 & in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	eor par{
+		out = in1 @ in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	sub par{
+		out = adder.sub(in1, in2, 0b0, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	rsb par{
+		out = adder.sub(in2, in1, 0b0, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	add par{
+		out = adder.add(in1, in2, 0b0, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	adc par{
+		out = adder.add(in1, in2, ci, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	sbc par{
+		out = adder.sub(in1, in2, ci, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	rsc par{
+		out = adder.sub(in2, in1, ci, df).out;
+		if( adder.co ) c(); if( (^in1<31>&^in2<31>&out<31>)|(in1<31>&in2<31>&^out<31>) ) v();
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	orr par{
+		out = in1 | in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	mov par{
+		out = in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	bic par{
+		out = in1 & ^in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+	instruct	mvn par{
+		out = ^in2;
+		if(out<31>) n(); if( ^/| out ) z();
+	}
+}
+
